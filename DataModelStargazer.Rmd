@@ -1,0 +1,306 @@
+---
+title: "StargzedModels"
+author: "Bejamin Roth"
+date: "10/23/2020"
+header-includes:
+   - \usepackage{dcolumn}
+   - \pagenumbering{gobble}
+
+geometry: margin=2cm
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+require(dplyr)
+require(stringr)
+require(stargazer)
+require(ggplot2)
+
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE, 
+                      messages = FALSE, 
+                      include = F)
+```
+
+
+```{r, include = F, echo = F}
+#read in data & remove index
+model_df = read.csv('../Data/Model_DataFrame.csv')
+model_df$X = NULL
+
+#get committees introduction count variable
+model_df = model_df %>% mutate(Committee_Intro_Count = str_count(Committees_Concat, ',') + 1)
+
+#fill na with 0
+model_df = model_df %>% mutate_if(is.numeric, ~replace(., is.na(.), 0))
+
+#year as factor
+model_df$year = as.factor(model_df$year)
+```
+
+```{r}
+#create base formula
+base_form = formula(passed ~ PNT_Count + AZCap_Count + AZCen_Count + AZDS_Count + Top_Topic + year)
+
+#train base model
+base_glm = glm(data = model_df
+              ,formula = base_form
+              ,family=binomial(link = "logit"))
+
+#add introduction variables into formula
+intro_form = formula(passed ~ PNT_Count + AZCap_Count + AZCen_Count + AZDS_Count + Committee_Intro_Count  + Bill_Sim_Binary + sen_intro + Top_Topic + year)
+
+#train model with introduction variables
+intro_glm = glm(data = model_df
+               ,formula = intro_form
+               ,family=binomial(link = "logit"))
+
+# create formula with sponsorship variables
+comm_form = formula(passed ~ PNT_Count + AZCap_Count + AZCen_Count + AZDS_Count + Committee_Intro_Count + Bill_Sim_Binary  + sen_intro + SponsorCount + RepubSponsorPct + Top_Topic + year)
+
+# train sponsor model
+committees_glm = glm(data = model_df
+                    ,formula = comm_form
+                    ,family=binomial(link = "logit"))
+
+
+
+
+```
+
+```{r, results = "asis", include = T}
+
+stargazer(base_glm, intro_glm, committees_glm,
+               style = 'ajps',
+               covariate.labels = c('PHX New Times Article Count', 'AZ Capitol Times Article Count', 'AZ Republic Article Count' 
+                                  ,'AZ Daily Star Article Count', 'Number of Committee Introductions' 
+                                    , 'Senate Introduction', 'Number of Sponsors', 'Percent Republican Sponsorship'
+                                   , 'Topic2', 'Topic3' , '2016', '2017', '2018', '2019'), 
+               flip = T,
+               title = 'Logistic Regression Results', 
+               dep.var.labels.include = F,
+               type = 'latex',
+               header=FALSE, # to get rid of r package output text
+               single.row = TRUE, # to put coefficients and standard errors on same line
+               no.space = TRUE, # to remove the spaces after each line of coefficients
+               column.sep.width = '10pt', 
+               font.size = "small") # to make font size smaller)
+
+
+```
+
+
+
+
+```{r}
+#compare effects of republic sponsorship percentage, sponsorcunt, sen_intro, committee intro count, topic2 vs. topic1
+
+#initialize output table vectors
+value1 = vector()
+value2 = vector()
+variable = vector()
+diff = vector()
+
+#set base values
+base_list = list()
+
+base_list$AverageCount = mean(model_df$AverageCount)
+base_list$year = '2017'
+base_list$Top_Topic = 'Topic1'
+base_list$Committee_Intro_Count = mean(model_df$Committee_Intro_Count)
+base_list$sen_intro = 1
+base_list$SponsorCount = mean(model_df$SponsorCount)
+base_list$RepubSponsorPct = mean(model_df$RepubSponsorPct)
+base_list$PNT_Count = mean(model_df$PNT_Count)
+base_list$AZCap_Count = mean(model_df$AZCap_Count)
+base_list$AZCen_Count = mean(model_df$AZCen_Count)
+base_list$AZDS_Count = mean(model_df$AZDS_Count)
+base_list$Bill_Sim_Binary = 0
+base_list$Prestige_Committee = 0
+```
+
+
+```{r}
+#bill sim 
+min_bsb = base_list
+min_bsb$Bill_Sim_Binary = min(model_df$Bill_Sim_Binary)
+
+max_bsb = base_list
+max_bsb$Bill_Sim_Binary = max(model_df$Bill_Sim_Binary)
+
+value1 = append(value1, predict(committees_glm, min_bsb, type = 'response') * 100)
+value2 = append(value2, predict(committees_glm, max_bsb, type = 'response') * 100)
+diff = append(diff, value2[length(value2)] - value1[length(value1)])
+variable = append(variable, 'Previous Bill Similarity')
+```
+
+
+```{r}
+
+#RepubSponsorPct
+min_rsp = base_list
+min_rsp$RepubSponsorPct = min(model_df$RepubSponsorPct)
+
+max_rsp = base_list
+max_rsp$RepubSponsorPct = max(model_df$RepubSponsorPct)
+
+value1 = append(value1, predict(committees_glm, min_rsp, type = 'response') * 100)
+value2 = append(value2, predict(committees_glm, max_rsp, type = 'response') * 100)
+diff = append(diff, value2[length(value2)] - value1[length(value1)])
+variable = append(variable, 'Republican Sponsors Percent')
+```
+
+
+```{r}
+#SponsorCount
+min_sponCount = base_list
+min_sponCount$SponsorCount = min(model_df$SponsorCount)
+
+max_sponCount = base_list
+max_sponCount$SponsorCount = max(model_df$SponsorCount)
+
+value1 = append(value1, predict(committees_glm, min_sponCount, type = 'response') * 100)
+value2 = append(value2, predict(committees_glm, max_sponCount, type = 'response') * 100)
+diff = append(diff, value2[length(value2)] - value1[length(value1)])
+variable = append(variable, 'Sponsor Count')
+```
+
+
+```{r}
+#sen_intro
+min_senIntro = base_list
+min_senIntro$sen_intro = min(model_df$sen_intro)
+
+max_senIntro = base_list
+max_senIntro$sen_intro = max(model_df$sen_intro)
+
+value1 = append(value1, predict(committees_glm, min_senIntro, type = 'response') * 100)
+value2 = append(value2, predict(committees_glm, max_senIntro, type = 'response') * 100)
+diff = append(diff, value2[length(value2)] - value1[length(value1)])
+variable = append(variable, 'Senate Introduction')
+```
+
+
+```{r}
+
+#Committee_Intro_Count
+min_CommCnt = base_list
+min_CommCnt$Committee_Intro_Count = min(model_df$Committee_Intro_Count)
+
+max_CommCnt = base_list
+max_CommCnt$Committee_Intro_Count = max(model_df$Committee_Intro_Count)
+
+value1 = append(value1, predict(committees_glm, min_CommCnt, type = 'response') * 100)
+value2 = append(value2, predict(committees_glm, max_CommCnt, type = 'response') * 100)
+diff = append(diff, value2[length(value2)] - value1[length(value1)])
+variable = append(variable, 'Committee Intro Count')
+```
+
+
+
+```{r}
+#Committee_Intro_Count
+Topic1 = base_list
+Topic1$Top_Topic = 'Topic1'
+
+Topic2 = base_list
+Topic2$Top_Topic = 'Topic2'
+
+value1 = append(value1, predict(committees_glm, Topic1, type = 'response') * 100)
+value2 = append(value2, predict(committees_glm, Topic2, type = 'response') * 100)
+diff = append(diff, value2[length(value2)] - value1[length(value1)])
+variable = append(variable, 'Topic2')
+```
+
+```{r}
+#Committee_Intro_Count
+min_AZDS = base_list
+min_AZDS$AZDS_Count = min(model_df$AZDS_Count)
+
+max_AZDS = base_list
+max_AZDS$AZDS_Count = max(model_df$AZDS_Count)
+
+
+value1 = append(value1, predict(committees_glm, min_AZDS, type = 'response') * 100)
+value2 = append(value2, predict(committees_glm, max_AZDS, type = 'response') * 100)
+diff = append(diff, value2[length(value2)] - value1[length(value1)])
+variable = append(variable, 'AZ Daily Star Article Count')
+```
+
+```{r, include = T, results = "asis",}
+
+diff_comparison = data.frame(variable, diff, value1, value2)
+colnames(diff_comparison) = c('Variable', 'Passage Probability Difference', 'Passage Probability 1', 'Passage Probability 2')
+
+for (column in c('Passage Probability Difference', 'Passage Probability 1', 'Passage Probability 2')) {
+  diff_comparison[, column] =  paste0(as.character(round(diff_comparison[, column], 2)), '%')
+}
+knitr::kable(diff_comparison, align = 'rccc', linesep = "\\addlinespace") %>%
+  kableExtra::kable_classic()  %>%
+  kableExtra::kable_styling(full_width = T, position = "center")
+
+```
+
+
+```{r, include = T, results = "asis",}
+bill_topics_keywords = read.csv('../Data/BillTitleTopicsKeyWords.csv')
+bill_topics_keywords$X = NULL
+
+row.names(bill_topics_keywords) = c('Topic 1', 'Topic 2', 'Topic 3')
+for (i in 1:length(colnames(bill_topics_keywords))) {
+  colnames(bill_topics_keywords)[i] = paste0('KeyWord ', as.character(i))
+}
+
+knitr::kable(bill_topics_keywords, align = 'rccc', linesep = "\\addlinespace", row.names = T) %>%
+  kableExtra::kable_classic()  %>%
+  kableExtra::kable_styling(full_width = T, position = "center")
+```
+
+
+```{r}
+model_df$full_fit = predict(committees_glm, type = 'response')
+
+model_df %>% filter(Top_Topic == 'Topic1') %>% arrange(desc(full_fit))
+```
+
+
+```{r}
+model_df %>% 
+  mutate(`PHX New Times` = PNT_Count,
+            `AZ Republic` = AZCen_Count,
+            `AZ Capitol Times` = AZCap_Count,
+            `AZ Daily Star` = AZDS_Count) %>%
+  tidyr::gather(`News Site`, Article.Count, c(`PHX New Times`, `AZ Republic`, `AZ Capitol Times`, `AZ Daily Star`)) %>%
+  mutate(Article.Count.Group = ifelse(Article.Count < 25, '0-24', ifelse(Article.Count >= 25 & Article.Count < 50, '25-49', ifelse(Article.Count >= 50 & Article.Count < 75, '50-74', ifelse(Article.Count >= 75 & Article.Count < 100, '75-99', '100+'))))) %>%
+  mutate(Article.Count.Group = factor(Article.Count.Group,levels = c('0-24', '25-49', '50-74', '75-99', '100+'))) %>%
+  ggplot(aes(x = Article.Count.Group, fill = `News Site`)) + 
+  geom_bar(position = 'dodge') + 
+  theme_classic() + 
+  theme(axis.title = element_text(color="#666666", face="bold", size=10))+
+  theme(plot.title = element_text(color="#666666", face="bold", size=13))+
+  theme(plot.subtitle = element_text(color="#666666", face="bold.italic", size=10))+
+  labs(title = "Bill Counts by Binned Number of Articles Per-Bill",
+       caption = "Articles found via Python scraper using bill key words in time-range within 6 months of bill's introduction",
+       x = "Article Count Bins",
+       y = "Bills Count") +
+  scale_y_continuous(breaks = c(0, 1500, 3000, 4500, 6000, 7500), limits = c(0, 7500),labels = scales::comma)
+
+```
+
+```{r}
+ldaScores = read.csv('../Data/LDAScores.csv')
+ldaScores %>% 
+  ggplot(aes(Topics,  LogLikelihood)) +
+  geom_line() +
+  theme_classic() + 
+  theme(axis.title = element_text(color="#666666", face="bold", size=10))+
+  theme(plot.title = element_text(color="#666666", face="bold", size=13))+
+  theme(plot.title = element_text(hjust = 1)) + 
+  labs(title = "Mean Holdout Log-Likelihood Scores by Number of Topics for \n5-Fold Cross-Validated Latent Dirichlet Allocation",
+       x = "Number of Topics",
+       y = "Mean Log-Likelihood Score") +
+  scale_y_continuous(labels = scales::comma) 
+```
+
